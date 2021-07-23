@@ -1,0 +1,577 @@
+from cmu_112_graphics import *
+import random, string, math, time
+import copy, os
+
+def appRestart(app):
+    app.players = 1
+    app.deck = ['2S','3S','4S','5S','6S','7S','8S','9S','0S',
+                'JS','QS','KS','AS',
+                '2D','3D','4D','5D','6D','7D','8D','9D','0D',
+                'JD','QD','KD','AD',
+                '2H','3H','4H','5H','6H','7H','8H','9H','0H',
+                'JH','QH','KH','AH',
+                '2C','3C','4C','5C','6C','7C','8C','9C','0C',
+                'JC','QC','KC','AC'
+                ]
+    app.playerHand = []
+    app.dealerHand = []
+    app.roundOver = False
+    app.playerChoice = None
+    app.winner = None
+    app.message = None
+    app.playerScore = 0
+    app.dealerScore = 0
+    app.playerBlackjack = False
+    app.dealerBlackjack = False
+    app.playerBust = False
+    app.dealerBust = False
+    app.amountWagered = 0
+    app.firstRoundHappened = False
+    app.gameOver = False
+    app.selectedBet = False
+    app.push = False
+    app.count = 0
+    app.monteCarloStays = 0
+    app.monteCarloBust = 0
+
+
+ 
+
+def appStarted(app):
+    app.playerChips = 100
+    appRestart(app)
+
+#function to deal out the cards at the start of the game
+
+def deal(app,deck):
+    hand = []
+    for i in range(2):
+        random.shuffle(deck)
+        card = deck.pop()
+        hand.append(card)
+    app.playerHand = hand
+
+#function that determines the score of a hand
+def score(app,hand):
+    score = 0
+    for card in hand:
+        if card[0] == 'A':
+            if score <= 10:
+                score += 11
+            else:
+                score += 1
+        elif(card[0] == "K" or card[0] == 'Q' or card[0] == 'J' 
+                or card[0] == '0'):
+            score += 10
+        else:
+            score += int(card[0])
+    return score
+
+#function that calls on score to determine if player has blackjack
+def blackjack(app,hand):
+    if score(app,hand) == 21:
+        return True
+    return False
+
+#function that checks to see if a player busts, and sets the app it so
+def checkPlayerBust(app):
+    count = score(app, app.playerHand)
+    if count > 21:
+        return True
+    else:
+        return False
+
+#function that checks to see if the dealer busts, and sets the app if so
+def checkDealerBust(app):
+    count = score(app,app.dealerHand)
+    if count > 21:
+        return True
+    else:
+        return False
+
+#function to check for a push
+def checkPush(app):
+    if checkPlayerBust(app) or checkDealerBust(app):
+        return False
+    return score(app,app.playerHand) == score(app,app.dealerHand)
+
+#function that compares the player's hand to the dealer's hand
+def winner(app,playerHand,dealerHand):
+    if blackjack(app,playerHand):
+        app.winner = 'player'
+        app.playerChips += int(1.5*app.amountWagered)
+        return
+    if blackjack(app,dealerHand):
+        app.winner = 'dealer'
+        app.playerChips -= app.amountWagered
+        return 
+    if score(app,playerHand) > 21:
+        app.winner = 'dealer'
+        app.playerChips -= app.amountWagered
+        return
+    if score(app,dealerHand) > 21:
+        app.winner = 'player'
+        app.playerChips += app.amountWagered
+        return
+    if score(app,dealerHand) > score(app,playerHand):
+        app.winner = 'dealer'
+        app.playerChips -= app.amountWagered
+    if score(app,playerHand) > score(app,dealerHand):
+        app.winner = 'player'
+        app.playerChips += app.amountWagered
+
+# function if player wants to take hit
+def hit(app,deck):
+    random.shuffle(deck)
+    card = deck.pop()
+    app.playerHand.append(card)
+    
+
+#function to deal to the dealer one card at a time
+def dealToDealer(app):
+    random.shuffle(app.deck)
+    card = app.deck.pop()
+    app.dealerHand.append(card)
+
+#function to deal to the dealer while less that 17 when player stays
+def dealerPlays(app):
+    while score(app,app.dealerHand) < 17:
+        dealToDealer(app)
+    app.dealerScore = score(app,app.dealerHand)
+
+
+
+# Monte Carlo Methods for probabilities of winning-----------------------------
+
+#function to simulate what happens if we stay on our score
+#will calculate expected values of winnings, assuming we bet 1, and then scaling
+#that to the player's bet for a recommendation
+
+# Citation - read this arcticle about monte carlo and blackjack
+# https://towardsdatascience.com/learning-to-win-blackjack-with-monte-
+# carlo-methods-61c90a52d53e
+
+#also used templates from CMU 112 notes - monte carlo methods
+#http://www.cs.cmu.edu/~112/notes/notes-monte-carlo.html
+
+
+def simulateHand(app):
+    x = copy.deepcopy(app.deck)
+    bet = app.amountWagered
+    playerScore = app.playerScore
+    dealerHand = copy.deepcopy(app.dealerHand)
+    dealerScore = score(app,dealerHand)
+    while dealerScore < 17:
+        random.shuffle(x)
+        card = x.pop()
+        dealerHand.append(card)
+        dealerScore = score(app,dealerHand)
+    if dealerScore > 21:
+        return bet
+    if playerScore > dealerScore:
+        return bet
+    if dealerScore > playerScore:
+        return -bet
+    if dealerScore == playerScore:
+        return 0
+
+    
+
+def monteCarlo(app):
+    n = 10**3
+    winnings = 0
+    for i in range(n):
+        win = simulateHand(app)
+        winnings += win
+    app.monteCarloStays = winnings / n
+
+#monte carlo for estimating chance of going bust
+def simulateBust(app):
+    x = copy.deepcopy(app.deck)
+    hand = copy.deepcopy(app.playerHand)
+    random.shuffle(x)
+    card = x.pop()
+    hand.append(card)
+    playerScore = score(app,hand)
+    if playerScore > 21:
+        return 1
+    else:
+        return 0
+
+def mcBust(app):
+    result = 0
+    n = 10**3
+    for i in range(n):
+        result += simulateBust(app)
+    app.monteCarloBust = result/n * 100
+
+    
+
+
+
+# cmu 112 notes
+# http://www.cs.cmu.edu/~112/notes/notes-animations-part1.html
+
+  
+
+def mousePressed(app, event):
+    #figure out those cases
+    
+    x = event.x
+    y = event.y
+    if x < app.width/20:
+        if 2*app.width/20 < y < 10*app.width/20:
+            i = 20*y//app.height - 2
+            bet = (i+1)*10
+            app.amountWagered = bet
+           
+
+
+
+
+def keyPressed(app, event):
+    key = event.key
+    if ((key.lower() == 't') and app.amountWagered != 0 
+        and app.firstRoundHappened == False):
+        deal(app,app.deck)
+        dealToDealer(app)
+        app.playerScore = score(app,app.playerHand)
+        app.dealerScore = score(app,app.dealerHand)
+        app.firstRoundHappened = True
+        #check for a blackjack in the player's hand
+        if blackjack(app,app.playerHand):
+            app.playerBlackjack = True
+            app.gameOver = True
+            app.playerChips += int(1.5*app.amountWagered)
+        monteCarlo(app)
+        mcBust(app)
+       
+
+
+    if (key.lower() == 'h' and not app.playerBust and not app.playerBlackjack
+        and app.firstRoundHappened and app.gameOver == False):#conditions
+        hit(app,app.deck)
+        app.playerScore = score(app,app.playerHand)
+        #check for player blackjack
+        if blackjack(app,app.playerHand):
+            app.playerBlackjack = True
+            app.gameOver = True
+            app.playerChips += int(1.5*app.amountWagered)
+        #check for player Bust
+        if checkPlayerBust(app):
+            app.playerBust = True
+            app.gameOver = True
+            app.playerChips -= app.amountWagered
+        monteCarlo(app)
+        mcBust(app)
+  
+
+
+
+    if (key.lower() == 's'
+        and app.firstRoundHappened): #conditions
+        dealerPlays(app) #probably
+
+        #check for dealer blackjack
+        if blackjack(app,app.dealerHand):
+            app.dealerBlackjack = True
+           
+        #check for dealer bust
+        if checkDealerBust(app):
+            app.dealerBust = True
+            
+        app.gameOver = True
+        winner(app, app.playerHand,app.dealerHand)
+        if checkPush(app):
+            app.push = True
+    
+    #restart the app if the hand is over
+    if app.gameOver and event.key == 'r':
+        appRestart(app)
+        
+
+
+
+# draw functions ----------------------------------------------
+# help from 112 notes
+#http://www.cs.cmu.edu/~112/notes/notes-animations-part3.html
+#http://www.cs.cmu.edu/~112/notes/notes-animations-part2.html
+
+
+#function to draw the background and the table
+def drawTable(app,canvas):
+    canvas.create_rectangle(0,0,app.width,app.height,
+                                fill = 'black')
+    #the table
+    r = app.width/2.5
+    a = app.width/4
+    canvas.create_arc(app.width/2 - r,app.height/2- r - a,
+                    app.width/2 + r,app.height/2 + r - a, start = -180,
+                    extent = 180, fill = 'green', width = app.width/50,
+                        outline = 'brown')
+    #white spot for player cards
+    center = app.height/2+app.height/11
+    canvas.create_rectangle(app.width/2-app.width/30, 
+    center - app.height/19, app.width/2+app.width/30,
+        center + app.height/19, fill='green', outline = 'white')
+    #white rectangle where dealer's cards go
+    c = app.height/3 - app.height/17
+    height = app.height/30
+    length = app.width/6
+    canvas.create_rectangle(app.width/2 - length,c - height, 
+        app.width/2+length,c + height, fill = 'green', outline = 'white')
+
+    
+
+def drawText(app,canvas):
+    #title of game
+    canvas.create_text(app.width/2, app.height/12, 
+    text='CMU BLACKJACK GAME!', font = 'Arial 36 bold',fill = 'white',
+        )
+    canvas.create_text(app.width/2, app.height/3, 
+    text='BLACKJACK PAYS 3 TO 2', font = 'Arial 24 bold',fill = 'gold',
+        )
+    canvas.create_text(app.width/2, app.height/3 + app.height/20,
+    text = 'Dealer must draw to 16, and stand on all 17s', 
+    fill = 'white', font = 'Arial 10')
+
+#function to draw the individual cards on the table
+def drawCard(app,canvas,x0,y0,x1,y1,rank,suit):
+    canvas.create_rectangle(x0,y0,x1,y1, width = 0, fill = 'white')
+    color = None
+    if suit == 'S' or suit == 'C':
+        color = 'black'
+    if suit == 'C' or suit == 'D':
+        color = 'red'
+    width = abs(x1-x0)
+    height = abs(y1-y0)
+    canvas.create_text(x0 + width/10,y0 + height/10, text = f'{rank}',
+                        fill = color, font = 'Arial 13 bold')
+    canvas.create_text(x1 - width/10,y1 - height/10, text = f'{rank}',
+                        fill = color, font = 'Arial 13 bold')
+    canvas.create_rectangle(x0 + width/5,y0 + height/5,
+                            x1 - width/5,y1 - height/5, fill = 'white',
+                            outline = color,width = 2,)
+    #resize fonts later
+    
+
+def drawPlayerHand(app,canvas,hand):
+    if hand == []:return
+    center = app.height/2+app.height/11
+    x0 = app.width/2-app.width/30
+    y0 = center - app.height/19
+    x1 = app.width/2+app.width/30
+    y1 = center + app.height/19
+    width = abs(x1-x0)
+    height = abs(y1-y0)
+    for i in range(len(hand)):
+        shift = i*width/3
+        rank = hand[i][0]
+        suit = hand[i][1]
+        drawCard(app,canvas,x0 + shift,y0,x1 + shift,y1,rank,suit)
+
+def drawDealerHand(app,canvas,hand):
+    if hand == []: return
+    center = app.height/3 - app.height/17
+    height = app.height/30
+    width = app.width/40
+    x0 = app.width/2 - width
+    y0 = center - height
+    x1 = app.width/2 + width
+    y1 = center + height
+    for i in range(len(hand)):
+        shift = i*(x1-x0)/3
+        rank = hand[i][0]
+        suit = hand[i][1]
+        drawCard(app,canvas,x0 + shift,y0,x1 + shift,y1,rank,suit)
+    
+
+instructions1 = [
+    'Instructions:',
+    "Beat the dealer's hand without going over 21",
+    'Cards are worth their rank, with face cards worth 10',
+    'Aces are worth 1 or 10, whichever makes a better card',
+    "Each player starts with 2 cards, one of the dealer's cards is hidden",
+    "To 'Hit' is to ask for another card.",
+    "To 'Stand' is to hold your total and end your turn.", 
+    "If you go over 21 you bust, regardless of the dealer's hand",
+    "If you are dealt 21 from the start (Ace & 10), you have a blackjack",
+    "Dealer will hit until their cards total 17 or higher"
+    ]
+
+instructions2 = [
+    "Press 't' to start playing",
+    "Press 'h' to 'hit'",
+    "Press 's' to 'stay' if cards have been dealt",
+    "Press 'r' to restart and play another hand"
+]
+
+def drawInstructions(app,canvas):
+    start = 2*app.height/3 - app.height/40
+    shift = app.width/50
+    #draw instructions on the left side of the page
+    for i in range(len(instructions1)):
+        canvas.create_text(app.width/50,start + shift*i, 
+        text = instructions1[i],
+        anchor = 'w', fill = 'white', font = 'Arial 10 bold')
+    #draw instructions on the right side of the page
+    for i in range(len(instructions2)):
+        canvas.create_text(app.width - app.width/50,start + shift*i, 
+        text = instructions2[i],
+        anchor = 'e', fill = 'white', font = 'Arial 10 bold')
+
+#function telling player what to do
+def playerChoice(app,canvas):
+    pass
+
+#draw the player's score
+def drawPlayerScore(app,canvas):
+    score = app.playerScore
+    y = app.height/2 + 3*app.height/20 + 5
+    x = app.width/2 + 5
+    canvas.create_text(x,y,text = f'Score:{score}  ' ,
+                        fill = 'gold', font = 'Arial 10',anchor = 'e')
+
+
+#draw the dealer's score
+def drawDealerScore(app,canvas):
+    score = app.dealerScore
+    y = app.height/6
+    x = app.width/2
+    canvas.create_text(x,y,text = f"Dealer's Score:{app.dealerScore}",
+                        font = 'Arial 10',fill = 'gold')
+
+
+#draw the player's chip count
+def drawChipCount(app,canvas):
+    count = app.playerChips
+    y = app.height/2 + 3*app.height/20 + 5
+    x = app.width/2 + 5
+    canvas.create_text(x,y,text = f'Chips:{count}  ' ,
+                        fill = 'gold', font = 'Arial 10',anchor = 'w')
+    
+
+
+#list of messages to write to the player
+messages = [
+    'Sorry, you bust',
+    'You got a Blackjack!',
+    'You beat the dealer!',
+    'Sorry, the dealer wins',
+    'The dealer busts, you win!',
+    'Push! You and the Dealer Tied'
+]
+
+# Helper Function to draw the message for the player results
+def drawMessage(app,canvas):
+    #for bust
+    if app.playerBust:
+        message = messages[0]
+        canvas.create_text(app.width/2, app.height - app.height/15,
+                    text = message, fill = 'gold', font = 'Arial 24 bold')
+    #for a player blackjack
+    if app.playerBlackjack:
+        message = messages[1]
+        canvas.create_text(app.width/2, app.height - app.height/15,
+                    text = message, fill = 'gold', font = 'Arial 24 bold')
+    #for a win
+    if app.winner == 'player' and app.gameOver:
+        message = messages[2]
+        canvas.create_text(app.width/2, app.height - app.height/15,
+                    text = message, fill = 'gold', font = 'Arial 24 bold')
+    # if the dealer has a higher score
+    if app.winner == 'dealer' and app.gameOver:
+        message = messages[3]
+        canvas.create_text(app.width/2, app.height - app.height/15,
+                    text = message, fill = 'gold', font = 'Arial 24 bold')
+    #if the dealer busts
+    if app.dealerBust:
+        message = messages[2]
+        canvas.create_text(app.width/2, app.height - app.height/15,
+                    text = message, fill = 'gold', font = 'Arial 24 bold')
+    if app.push:
+        message = messages[5]
+        canvas.create_text(app.width/2, app.height - app.height/15,
+                    text = message, fill = 'gold', font = 'Arial 24 bold')
+def drawBetChoice(app,canvas):
+    #drawCircle if bet was selected
+
+    for i in range(10):
+        top = (2+i)/20 * app.height
+        bottom = (3+i)/20 *app.height
+        left = app.width/20
+        number = (i+1)*10
+        canvas.create_rectangle(0,top,left,bottom, fill = 'black', 
+                        outline = 'white')
+        canvas.create_text(app.width/40, (2.5+i)*app.height/20,
+                            text = f'{number}',fill = 'white' )
+    
+    if app.amountWagered != 0:
+        j = app.amountWagered // 10
+        top = (1+j)/20 * app.height
+        bottom = (2+j)/20 *app.height
+        right = app.width/20
+        canvas.create_rectangle(0,top,right,bottom,fill = 'gold', 
+                                outline='white')
+        canvas.create_text(app.width/40,(1.5+j)*app.height/20,
+                            text = f'{app.amountWagered}',fill = 'black' )
+    # draw amount selected
+    canvas.create_text(app.width/30,app.height/20,
+            text=f'Bet:{app.amountWagered}',fill='gold',font='Arial 10')
+
+#Draw Monte Carlo Recommendations--------------------------------------
+
+def drawMonteCarlo(app,canvas):
+    if app.gameOver or not app.firstRoundHappened: return
+    canvas.create_text(3*app.width/4,3*app.height/4,
+    text='Monte Carlo Recommendations:', font='Arial 14 bold',
+    fill='light blue')
+
+    canvas.create_text(3*app.width/4,3*app.height/4 + app.height/40,
+    text="Expected winnings if player 'stays':", 
+    font='Arial 10 bold',fill='light blue')
+    
+    canvas.create_text(3*app.width/4,3*app.height/4 + app.height/20,
+    text= f'{app.monteCarloStays}', 
+    font='Arial 10 bold',fill='light blue')
+    #% bust text
+    canvas.create_text(3*app.width/4,3*app.height/4 + 3*app.height/40,
+    text= "Chance of 'bust' if player 'hits'", 
+    font='Arial 10 bold',fill='light blue')
+
+    canvas.create_text(3*app.width/4,3*app.height/4 + 4*app.height/40,
+    text= f'{app.monteCarloBust}%', 
+    font='Arial 10 bold',fill='light blue')
+    #recommended move
+    if(app.monteCarloStays > 0) and app.monteCarloBust >0:
+        canvas.create_text(3*app.width/4,3*app.height/4 + 5*app.height/40,
+        text= 'Recommended Move: Stay', 
+        font='Arial 10 bold',fill='gold')
+    elif app.monteCarloBust == 0:
+        canvas.create_text(3*app.width/4,3*app.height/4 + 5*app.height/40,
+        text= 'Recommended Move: Hit', 
+        font='Arial 10 bold',fill='gold')
+    else:
+        canvas.create_text(3*app.width/4,3*app.height/4 + 5*app.height/40,
+        text= 'Recommended Move: You decide! Hit of Stay', 
+        font='Arial 10 bold',fill='gold')
+
+def redrawAll(app,canvas):
+    drawTable(app,canvas)
+    drawText(app,canvas)
+    drawPlayerHand(app,canvas,app.playerHand)
+    drawDealerHand(app,canvas,app.dealerHand)
+    drawInstructions(app,canvas)
+    drawPlayerScore(app,canvas)
+    drawDealerScore(app,canvas)
+    drawChipCount(app,canvas)
+    drawMessage(app,canvas)
+    drawBetChoice(app,canvas)
+    drawMonteCarlo(app,canvas)
+
+
+def main():
+    runApp(width=650, height=550)
+
+if (__name__ == '__main__'):
+    main()
